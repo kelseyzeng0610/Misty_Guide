@@ -1,0 +1,14 @@
+certifi==2024.8.30
+charset-normalizer==3.4.0
+click==8.1.7
+gTTS==2.5.3
+idna==3.10
+Misty-SDK==0.1.1
+mistyPy==0.0.4
+pip==24.3.1
+requests==2.32.3
+setuptools==49.2.1
+six==1.16.0
+urllib3==2.2.3
+websocket-client==0.52.0
+yapf==0.30.0
