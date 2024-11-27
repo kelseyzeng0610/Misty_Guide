@@ -7,7 +7,7 @@ cap.set(3, 640)
 cap.set(4, 480)
 
 # model
-model = YOLO("yolo-Weights/yolov8n.pt")
+model = YOLO("yolo_weights/yolo11n.pt")
 
 # object classes
 classNames = ["person", "bicycle", "car", "motorbike", "aeroplane", "bus", "train", "truck", "boat",
@@ -62,3 +62,6 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+
+
+
