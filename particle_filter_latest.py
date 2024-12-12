@@ -476,6 +476,12 @@ class RobotLocalizer:
         misty.EnableCameraService()
         camera_url = f"http://{self.misty_ip}/api/cameras/rgb"
         headers = {"Accept": "image/jpeg"}
+
+        image_dir = "capture_images"
+        os.makedirs(image_dir, exist_ok=True)
+
+        time_stamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = os.path.join(image_dir, f"misty_frame_{time_stamp}.jpg")
         try:
             response = requests.get(camera_url, headers=headers, stream=True, timeout=5)
             if response.status_code == 200:
@@ -484,7 +490,7 @@ class RobotLocalizer:
                 if frame is not None:
                     # Resize the image if necessary
                     frame = cv2.resize(frame, (720, 1080)) 
-                    plt.show(frame)
+                    cv2.imwrite(filename, frame)
                      # (width, height)
                     return frame
                 else:
