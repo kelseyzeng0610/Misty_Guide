@@ -20,7 +20,8 @@ import asyncio
 import io
 
 logging.basicConfig(
-    level=logging.INFO,  # Set to INFO to reduce verbosity. Change to DEBUG if detailed logs are needed.
+    # Set to INFO to reduce verbosity. Change to DEBUG if detailed logs are needed.
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
@@ -38,8 +39,8 @@ WIDTH_MIN = -15.4
 HEIGHT_MIN = -12.2
 
 subscribed = False
-ORIGIN = np.array([-15.4, -12.2, 0.0])  
-RESOLUTION = 0.05  
+ORIGIN = np.array([-15.4, -12.2, 0.0])
+RESOLUTION = 0.05
 CEILING_GRID_SIZE = 7
 FRONT_TOF_SENSOR_ID = "toffc"
 LOOP_INTERVAL = 5
@@ -49,7 +50,7 @@ free_threshold = 0.196
 HEIGHT = int(15.4 / 0.05)  # 308
 WIDTH = int(15.4 / 0.05)   # 308
 
-blocked_columns = [4,5,6]
+blocked_columns = [4, 5, 6]
 
 
 data_queue = Queue()
@@ -59,65 +60,72 @@ wheel_base = 0.11  # Wheel base (track width) in meters
 # We'll encapsulate variables within classes
 
 # Helper Functions
+
+
 def world_to_grid(world_x, world_y):
     """Convert world coordinates to grid coordinates"""
     try:
         grid_x = int((world_x - ORIGIN[0]) / RESOLUTION)
         grid_y = int((world_y - ORIGIN[1]) / RESOLUTION)
-        
+
         # Boundary checks
         if grid_x < 0 or grid_y < 0 or grid_x >= WIDTH or grid_y >= HEIGHT:
             return None, None
-            
+
         return grid_x, grid_y
     except Exception as e:
         logging.error(f"Error in world_to_grid: {e}")
         return None, None
+
 
 def grid_to_world(grid_x, grid_y):
     """Convert grid coordinates to world coordinates"""
     try:
         if grid_x < 0 or grid_y < 0 or grid_x >= WIDTH or grid_y >= HEIGHT:
             return None, None
-            
+
         world_x = grid_x * RESOLUTION + ORIGIN[0]
         world_y = grid_y * RESOLUTION + ORIGIN[1]
-            
+
         return world_x, world_y
     except Exception as e:
         logging.error(f"Error in grid_to_world: {e}")
         return None, None
+
+
 def grid_to_ceiling(grid_x, grid_y):
     """Convert grid coordinates to ceiling coordinates with validation."""
     try:
         # Input validation
         if grid_x is None or grid_y is None:
             return None, None
-            
+
         # Ensure integers
         grid_x = int(grid_x)
         grid_y = int(grid_y)
-        
+
         # Boundary checks
         if not (0 <= grid_x < WIDTH and 0 <= grid_y < HEIGHT):
             return None, None
-            
+
         ceiling_x = grid_x // CEILING_GRID_SIZE
         ceiling_y = grid_y // CEILING_GRID_SIZE
-        
+
         # Check ceiling grid bounds
         max_ceiling_x = WIDTH // CEILING_GRID_SIZE
         max_ceiling_y = HEIGHT // CEILING_GRID_SIZE
-        
+
         if not (0 <= ceiling_x < max_ceiling_x and 0 <= ceiling_y < max_ceiling_y):
             return None, None
-            
+
         return ceiling_x, ceiling_y
-        
+
     except Exception as e:
         logging.error(f"Error in grid_to_ceiling: {e}")
         return None, None
 # Particle Filter Class
+
+
 class ParticleFilter:
     def __init__(self, num_particles, grid_map, origin, resolution, ceiling_grid_size=6):
         self.num_particles = num_particles
@@ -126,7 +134,8 @@ class ParticleFilter:
         self.resolution = resolution
         self.ceiling_grid_size = ceiling_grid_size
         self.particles = self.initialize_particles()
-        self.particle_weights = np.ones(self.num_particles) / self.num_particles
+        self.particle_weights = np.ones(
+            self.num_particles) / self.num_particles
 
     def initialize_particles(self):
         """
@@ -165,18 +174,21 @@ class ParticleFilter:
         expected_hsv = cv2.cvtColor(expected_image, cv2.COLOR_BGR2HSV)
 
         # Calculate histograms
-        actual_hist = cv2.calcHist([actual_hsv], [0, 1], None, [50, 60], [0, 180, 0, 256])
-        expected_hist = cv2.calcHist([expected_hsv], [0, 1], None, [50, 60], [0, 180, 0, 256])
+        actual_hist = cv2.calcHist([actual_hsv], [0, 1], None, [
+                                   50, 60], [0, 180, 0, 256])
+        expected_hist = cv2.calcHist([expected_hsv], [0, 1], None, [
+                                     50, 60], [0, 180, 0, 256])
 
         # Normalize histograms
         cv2.normalize(actual_hist, actual_hist)
         cv2.normalize(expected_hist, expected_hist)
 
         # Compute similarity using Bhattacharyya distance
-        similarity = 1 - cv2.compareHist(actual_hist, expected_hist, cv2.HISTCMP_BHATTACHARYYA)
+        similarity = 1 - \
+            cv2.compareHist(actual_hist, expected_hist,
+                            cv2.HISTCMP_BHATTACHARYYA)
 
         return max(0.0, similarity)
-
 
     def update_weights(self, actual_image):
         if actual_image is None:
@@ -184,7 +196,7 @@ class ParticleFilter:
             return
 
         logging.info(f"Updating weights for {self.num_particles} particles")
-        
+
         for i, particle in enumerate(self.particles):
             try:
                 # Convert coordinates
@@ -203,7 +215,8 @@ class ParticleFilter:
                 ceiling_x, ceiling_y = grid_to_ceiling(grid_x, grid_y)
                 print("ceiling",ceiling_x,ceiling_y)
                 if ceiling_x is None or ceiling_y is None:
-                    logging.debug(f"Invalid ceiling coordinates for particle {i}")
+                    logging.debug(
+                        f"Invalid ceiling coordinates for particle {i}")
                     self.particle_weights[i] = 0.0
                     continue
 
@@ -216,21 +229,20 @@ class ParticleFilter:
                 # Process images for valid particles
                 similarities = []
                 ceiling_images = self.grid_map['ceiling_images'][ceiling_key]
-                
+
                 # Debug visualization of actual image
                 
 
                 
                 # Compare with each orientation
                 for orientation, coord in ceiling_images.items():
-                   
                     image_path = os.path.join('ceiling_images', 
                                             f'{ceiling_key[0]}_{ceiling_key[1]}_{orientation}.jpg')
                     
                     if not os.path.exists(image_path):
                         logging.warning(f"Image not found: {image_path}")
                         continue
-                        
+
                     expected_image = cv2.imread(image_path)
                     if expected_image is not None:
                         # Debug visualization of expected image
@@ -239,14 +251,16 @@ class ParticleFilter:
                         
                         similarity = self.image_similarity(expected_image, actual_image)
                         similarities.append(similarity)
-                        logging.debug(f"Similarity for orientation {orientation}: {similarity}")
+                        logging.debug(
+                            f"Similarity for orientation {orientation}: {similarity}")
                     else:
                         logging.warning(f"Failed to load image: {image_path}")
 
                 # Update weight based on best match
                 if similarities:
                     self.particle_weights[i] = max(similarities)
-                    logging.debug(f"Particle {i} weight: {self.particle_weights[i]}")
+                    logging.debug(
+                        f"Particle {i} weight: {self.particle_weights[i]}")
                 else:
                     self.particle_weights[i] = 0.0
                     logging.debug(f"No valid similarities for particle {i}")
@@ -259,17 +273,59 @@ class ParticleFilter:
         total_weight = np.sum(self.particle_weights)
         if total_weight > 0:
             self.particle_weights /= total_weight
-            logging.info(f"Weights normalized. Max weight: {np.max(self.particle_weights)}")
+            logging.info(
+                f"Weights normalized. Max weight: {np.max(self.particle_weights)}")
         else:
-            self.particle_weights = np.ones(self.num_particles) / self.num_particles
+            self.particle_weights = np.ones(
+                self.num_particles) / self.num_particles
             logging.warning("All weights were zero, reset to uniform")
 
         # Log weight statistics
         logging.info(f"Weight stats - Mean: {np.mean(self.particle_weights):.6f}, "
-                    f"Std: {np.std(self.particle_weights):.6f}, "
-                    f"Max: {np.max(self.particle_weights):.6f}")
-  
-   
+                     f"Std: {np.std(self.particle_weights):.6f}, "
+                     f"Max: {np.max(self.particle_weights):.6f}")
+    # def update_weights(self, actual_image):
+    #     """
+    #     Update particle weights based on image similarity.
+    #     """
+    #     for i, particle in enumerate(self.particles):
+    #         ceiling_key = None
+    #         if not np.isnan(particle[0]) and not np.isnan(particle[1]):
+    #             grid_x, grid_y = world_to_grid(particle[0], particle[1])
+    #             ceiling_x, ceiling_y = grid_to_ceiling(grid_x, grid_y)
+    #             if ceiling_x is not None and ceiling_y is not None:
+    #                 ceiling_key = (ceiling_y, ceiling_x)
+
+    #         if ceiling_key is None or ceiling_key not in self.grid_map['ceiling_images']:
+    #             self.particle_weights[i] = 0.0
+    #             continue
+
+    #         else:
+    #             similarity = []
+    #             ceiling_images = self.grid_map['ceiling_images'][ceiling_key]
+    #             plt.show(actual_image)
+    #             for(orientation, coord) in ceiling_images.items():
+    #                 image_path = f'ceiling_images/{ceiling_key[0]}_{ceiling_key[1]}_{orientation}.jpg'
+    #                 expected_image = cv2.imread(image_path)
+
+    #                 if expected_image is None:
+
+    #                     plt.imshow(expected_image)
+    #                     plt.show()
+    #                     res = self.image_similarity(expected_image, actual_image)
+    #                     similarity.append(res)
+
+    #             self.particle_weights[i] = max(similarity) if similarity else 0.0
+
+    #     # Normalize weights
+    #     total_weight = np.sum(self.particle_weights)
+    #     if total_weight == 0:
+    #         # Avoid division by zero; assign uniform weights
+    #         self.particle_weights = np.ones(self.num_particles) / self.num_particles
+    #     else:
+    #         # Add a small value to avoid zero weights
+    #         self.particle_weights += 1e-6
+    #         self.particle_weights /= np.sum(self.particle_weights)
 
     def resample(self):
         """
@@ -328,13 +384,10 @@ class ParticleFilter:
         plt.title("Particle Filter Localization")
         plt.grid(True)
         plt.show()
-        plt.savefig("dumb.png")
+        plt.savefig("testing_testing_testing.png")
+        # we want the scatterplot to be overlaid on top of the map
+        # origin of image is top left, origin of the room is bottom right
         plt.pause(0.01)
-
-
-
-   
-
 
 
 def load_grid_map(pgm_path):
@@ -362,11 +415,13 @@ def load_grid_map(pgm_path):
 
     ceiling_images_dir = 'ceiling_images'
     if not os.path.exists(ceiling_images_dir):
-        raise FileNotFoundError(f"Ceiling images directory '{ceiling_images_dir}' not found.")
+        raise FileNotFoundError(
+            f"Ceiling images directory '{ceiling_images_dir}' not found.")
 
     # Regular expression to match the renamed filename pattern
     # Expected format: y_x_orientation.jpg/png
-    pattern = re.compile(r'^(\d+)_(\d+)_(front|left|back|right)\.(jpg|png)$', re.IGNORECASE)
+    pattern = re.compile(
+        r'^(\d+)_(\d+)_(front|left|back|right)\.(jpg|png)$', re.IGNORECASE)
 
     for filename in os.listdir(ceiling_images_dir):
         if filename.lower().endswith('.jpg') or filename.lower().endswith('.png'):
@@ -388,11 +443,15 @@ def load_grid_map(pgm_path):
 
                 # Assign the image path to the corresponding orientation
                 ceiling_image_path = os.path.join(ceiling_images_dir, filename)
-                grid_map["ceiling_images"][(y, x)][orientation] = ceiling_image_path
-                print(f"Loaded image for grid ({y}, {x}) - {orientation}: {filename}")
+                grid_map["ceiling_images"][(
+                    y, x)][orientation] = ceiling_image_path
+                print(
+                    f"Loaded image for grid ({y}, {x}) - {orientation}: {filename}")
             else:
-                print(f"Invalid ceiling image filename format: {filename}. Expected 'y_x_orientation.jpg/png'. Skipping.")
+                print(
+                    f"Invalid ceiling image filename format: {filename}. Expected 'y_x_orientation.jpg/png'. Skipping.")
                 continue
+
     def random_free_cell():
         attempts = 0
         max_attempts = 10000
@@ -407,10 +466,8 @@ def load_grid_map(pgm_path):
 
             attempts += 1
 
-    
     grid_map['random_free_cell'] = random_free_cell
     return grid_map
-
 
 
 class RobotLocalizer:
@@ -453,9 +510,11 @@ class RobotLocalizer:
 
         
         try:
-            response = requests.get(camera_url, headers=headers, stream=True, timeout=5)
+            response = requests.get(
+                camera_url, headers=headers, stream=True, timeout=5)
             if response.status_code == 200:
-                img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
+                img_array = np.asarray(
+                    bytearray(response.content), dtype=np.uint8)
                 frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 if frame is not None:
                     # Resize the image if necessary
@@ -465,7 +524,8 @@ class RobotLocalizer:
                 else:
                     print("Error: Failed to decode the image. Frame is None.")
             else:
-                print(f"Error fetching frame: {response.status_code} - {response.text}")
+                print(
+                    f"Error fetching frame: {response.status_code} - {response.text}")
         except requests.exceptions.RequestException as e:
             print(f"Request Exception while fetching image: {e}")
         return None
@@ -514,6 +574,7 @@ class RobotLocalizer:
         if eventName == "DriveEncoders":
             left_velocity_mm_s = data.get("leftVelocity", 0.0)
             right_velocity_mm_s = data.get("rightVelocity", 0.0)
+            left_v = left_velocity_mm_s / 1000.0  # Convert mm/s to m/s
             left_v = left_velocity_mm_s / 1000.0  # Convert mm/s to m/s
             right_v = right_velocity_mm_s / 1000.0  # Convert mm/s to m/s
 
@@ -691,11 +752,14 @@ def on_message(ws, message):
         logging.warning(f"Unknown event received: {event_data}")
 
 
-
 def on_error(ws, error):
     logging.error(f"WebSocket error: {error}")
+
+
 def on_close(ws, close_status_code, close_msg):
     logging.info("WebSocket connection closed")
+
+
 def on_open(ws):
     global subscribed  # Use if opting for the global flag approach
     logging.info("WebSocket connection opened")
@@ -718,12 +782,14 @@ def on_open(ws):
         logging.info("Already subscribed to events")
 
 
+
 def handle_sensor_data(event_type, message):
     """
     Callback to handle incoming sensor data and enqueue it for processing.
     """
     if message is None:
-        logging.warning(f"No 'message' field in event data for event type: {event_type}")
+        logging.warning(
+            f"No 'message' field in event data for event type: {event_type}")
         return
 
     else:
@@ -736,14 +802,13 @@ def handle_sensor_data(event_type, message):
 
 
 
-        
+
 # Entry Point
-if __name__ == "__main__":
+def main():
     # Configuration
     MAP_IMAGE_PATH = "lab_474_cropped.pgm"
 
     # Test coordinate transformations with error handling
-   
 
     WS_URL = f"ws://{MISTY_IP}/pubsub"
 
