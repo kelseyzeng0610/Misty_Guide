@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from queue import Queue
 import threading
 import base64
+import asyncio
 import io
 
 logging.basicConfig(
@@ -28,6 +29,14 @@ logging.basicConfig(
 MISTY_IP = "10.5.9.252"
 misty = Robot(MISTY_IP)
 # Constants
+
+
+
+WIDTH_MAX = 0
+HEIGHT_MAX = 0
+WIDTH_MIN = -15.4
+HEIGHT_MIN = -12.2
+
 subscribed = False
 ORIGIN = np.array([-15.4, -12.2, 0.0])  
 RESOLUTION = 0.05  
@@ -133,12 +142,16 @@ class ParticleFilter:
         """
         Move particles based on control input with added Gaussian noise.
         """
-        noise = np.random.normal(0, sigma, self.particles.shape)
-        movement = np.array([dx, dy])
-        self.particles += movement + noise
 
-        # Optionally, implement boundary conditions here
-        # For example, reflect particles that move out of bounds
+        for particle in self.particles:
+            noise = np.array([np.random.normal(0, sigma), np.random.normal(0, sigma)])
+            movement = np.array([dx, dy])
+            attempt = movement + noise + particle
+            if attempt is None and attempt[0] <= WIDTH_MAX and attempt[1] <= HEIGHT_MAX and attempt[0] >= WIDTH_MIN and attempt[1] >= HEIGHT_MIN:
+                particle = attempt
+            else:
+                particle = particle
+
 
     def image_similarity(self, expected_image, actual):
         """
@@ -181,12 +194,14 @@ class ParticleFilter:
                     continue
 
                 grid_x, grid_y = world_to_grid(particle[0], particle[1])
+                print("grid:",grid_x,grid_y)
                 if grid_x is None or grid_y is None:
                     logging.debug(f"Invalid grid coordinates for particle {i}")
                     self.particle_weights[i] = 0.0
                     continue
-
+               
                 ceiling_x, ceiling_y = grid_to_ceiling(grid_x, grid_y)
+                print("ceiling",ceiling_x,ceiling_y)
                 if ceiling_x is None or ceiling_y is None:
                     logging.debug(f"Invalid ceiling coordinates for particle {i}")
                     self.particle_weights[i] = 0.0
@@ -203,14 +218,12 @@ class ParticleFilter:
                 ceiling_images = self.grid_map['ceiling_images'][ceiling_key]
                 
                 # Debug visualization of actual image
-                if i == 0:  # Only show for first particle to avoid too many plots
-                    plt.figure(figsize=(5,5))
-                    plt.imshow(cv2.cvtColor(actual_image, cv2.COLOR_BGR2RGB))
-                    plt.title("Actual Image")
-                    plt.show()
+                
 
+                
                 # Compare with each orientation
                 for orientation, coord in ceiling_images.items():
+                   
                     image_path = os.path.join('ceiling_images', 
                                             f'{ceiling_key[0]}_{ceiling_key[1]}_{orientation}.jpg')
                     
@@ -221,11 +234,8 @@ class ParticleFilter:
                     expected_image = cv2.imread(image_path)
                     if expected_image is not None:
                         # Debug visualization of expected image
-                        if i == 0:  # Only show for first particle
-                            plt.figure(figsize=(5,5))
-                            plt.imshow(cv2.cvtColor(expected_image, cv2.COLOR_BGR2RGB))
-                            plt.title(f"Expected Image - {orientation}")
-                            plt.show()
+
+            
                         
                         similarity = self.image_similarity(expected_image, actual_image)
                         similarities.append(similarity)
@@ -277,8 +287,12 @@ class ParticleFilter:
         """
         Estimate the robot's position as the weighted average of particle positions.
         """
-        self.particle_weights += 1e-6  # Add a small value to avoid zero weights
-
+        # self.particle_weights += 1e-6  # Add a small value to avoid zero weights
+        # index = np.argmax(self.particle_weights)
+        # print(self.particles[index])
+        # world_x, world_y = world_to_grid(self.particles[index][0],self.particles[index][1])
+        # print(grid_to_ceiling(world_x,world_y))
+        # breakpoint()
         x_estimate = np.average(self.particles[:, 0], weights=self.particle_weights)
         y_estimate = np.average(self.particles[:, 1], weights=self.particle_weights)
         return x_estimate, y_estimate
@@ -313,6 +327,8 @@ class ParticleFilter:
         plt.ylabel("World Y (meters)")
         plt.title("Particle Filter Localization")
         plt.grid(True)
+        plt.show()
+        plt.savefig("dumb.png")
         plt.pause(0.01)
 
 
@@ -385,7 +401,7 @@ def load_grid_map(pgm_path):
             y = random.randint(0, height - 1)
             pixel_value = grid_map["map_array"][y, x]
 
-            if pixel_value <= THRESHOLD:
+            if pixel_value <= THRESHOLD and (x // 7 not in blocked_columns):
                 world_x, world_y = grid_to_world(x, y)
                 return world_x, world_y
 
@@ -398,7 +414,7 @@ def load_grid_map(pgm_path):
 
 
 class RobotLocalizer:
-    def __init__(self, map_image_path, misty_ip, num_particles=300):
+    def __init__(self, map_image_path, misty_ip, num_particles=100):
         self.grid_map = load_grid_map(map_image_path)
         self.origin = ORIGIN
         self.resolution = RESOLUTION
@@ -412,6 +428,11 @@ class RobotLocalizer:
         self.misty_ip = misty_ip
         self.current_position = np.array([0.0, 0.0])
         self.lock = threading.Lock()
+        self.dx = 0.0
+        self.dy = 0.0
+        self.vx = 0.0
+        self.vy = 0.0
+        self.yaw = 0.0
 
     def __del__(self):
         """Cleanup when object is deleted"""
@@ -419,11 +440,6 @@ class RobotLocalizer:
             self.websocket_client.cleanup()
     
 
-   
-
-
-        
-        
         
 
     def fetch_camera_image(self):
@@ -435,11 +451,7 @@ class RobotLocalizer:
         camera_url = f"http://{self.misty_ip}/api/cameras/rgb"
         headers = {"Accept": "image/jpeg"}
 
-        image_dir = "capture_images"
-        os.makedirs(image_dir, exist_ok=True)
-
-        time_stamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = os.path.join(image_dir, f"misty_frame_{time_stamp}.jpg")
+        
         try:
             response = requests.get(camera_url, headers=headers, stream=True, timeout=5)
             if response.status_code == 200:
@@ -448,7 +460,6 @@ class RobotLocalizer:
                 if frame is not None:
                     # Resize the image if necessary
                     frame = cv2.resize(frame, (720, 1080)) 
-                    cv2.imwrite(filename, frame)
                      # (width, height)
                     return frame
                 else:
@@ -459,69 +470,210 @@ class RobotLocalizer:
             print(f"Request Exception while fetching image: {e}")
         return None
 
-    def extract_movement(self, eventName,data):
+    # def process_imu_data(self, imu_data, loop_interval):
+    #     """
+    #     Process IMU data to update orientation and position deltas.
+    #     """
+    #     yaw = math.radians(imu_data.get("yaw", 0.0))  # Convert to radians
+    #     yaw_velocity = math.radians(imu_data.get("yawVelocity", 0.0))  # radians/s
+    #     pitch = math.radians(imu_data.get("pitch", 0.0))
+    #     roll = math.radians(imu_data.get("roll", 0.0))
+    #     x_acc = imu_data.get("xAcceleration", 0.0)  # m/s^2
+    #     y_acc = imu_data.get("yAcceleration", 0.0)  # m/s^2
+    #     z_acc = imu_data.get("zAcceleration", 0.0) - 9.8  # Net z acceleration
+
+    #     # Update yaw (absolute orientation)
+    #     self.yaw = yaw
+
+    #     # Adjust acceleration for tilt
+    #     x_acc_adjusted = x_acc * math.cos(pitch)
+    #     y_acc_adjusted = y_acc * math.cos(roll)
+
+    #     # Update velocities using acceleration
+    #     self.vx += x_acc_adjusted * loop_interval
+    #     self.vy += y_acc_adjusted * loop_interval
+
+    #     # Calculate position deltas
+    #     dx = self.vx * math.cos(self.yaw) * LOOP_INTERVAL
+    #     dy = self.vy * math.sin(self.yaw) * LOOP_INTERVAL
+
+    #     self.dx += dx
+    #     self.dy += dy
+
+    #     return self.dx, self.dy
+
+
+  
+    def extract_movement(self, eventName, data):
         """
-        Convert encoder velocities to movement deltas (dx, dy).
+        Fuse encoder and IMU data to calculate movement deltas (dx, dy).
         """
-        wheel_base = 0.11 
+        wheel_base = 0.11  # Distance between wheels in meters
+        LOOP_INTERVAL = 0.1  # Time interval in seconds
+
         if eventName == "DriveEncoders":
-            print(data)
             left_velocity_mm_s = data.get("leftVelocity", 0.0)
             right_velocity_mm_s = data.get("rightVelocity", 0.0)
-            left_v = left_velocity_mm_s / 1000.0  # Convert mm/s to m/s 
+            left_v = left_velocity_mm_s / 1000.0  # Convert mm/s to m/s
             right_v = right_velocity_mm_s / 1000.0  # Convert mm/s to m/s
-        v = (left_v + right_v) / 2.0  # Linear velocity
-        omega = (right_v - left_v) / wheel_base  # Angular velocity
-        dt = LOOP_INTERVAL  # Time interval in seconds
-        dx = v * math.cos(omega * dt) * dt
-        dy = v * math.sin(omega * dt) * dt  # Assuming robot moves in the direction of heading
-        return dx, dy
-    
+
+            # Calculate linear and angular velocity from encoders
+            self.vx = (left_v + right_v) / 2.0
+            self.omega = (right_v - left_v) / wheel_base
 
 
-    def run(self):
+        elif eventName == "IMU":
+            yaw = math.radians(data.get("yaw", 0.0))  # Convert yaw to radians
+            yaw_velocity = math.radians(data.get("yawVelocity", 0.0))  # Radians/s
+            x_acc = data.get("xAcceleration", 0.0)  # m/s^2
+            y_acc = data.get("yAcceleration", 0.0)  # m/s^2
+
+            # Update yaw using a complementary filter
+            alpha = 0.9  # Filter parameter (adjust based on testing)
+            self.yaw = alpha * (self.yaw + yaw_velocity * LOOP_INTERVAL) + (1 - alpha) * yaw
+
+            # Refine linear velocity using IMU acceleration
+            self.vx += x_acc * LOOP_INTERVAL  # Incorporate acceleration
+
+        # Use fused linear velocity (v) and yaw for position updates
+        dx = self.vx * math.cos(self.yaw) * LOOP_INTERVAL
+        dy = self.vy * math.sin(self.yaw) * LOOP_INTERVAL
+
+        
+        self.dx += dx
+        self.dy += dy
+
+        return dx,dy
+
+
+
+    #
+    def run(self, step=0):
         global data_queue
         """Main loop to process sensor data and update particle filter."""
         plt.figure(figsize=(8, 8))
         plt.ion()  # Interactive mode on
-        step = 0
-        plot_interval = 5
+        
+        # Step counters and intervals
+        fusion_interval = 0.01  # 10 ms (100 Hz)
+        particle_interval = 0.1  # 100 ms (10 Hz)
+        plot_interval = 5  # Plot every 5 particle filter steps
 
-        while True:
+        last_fusion_time = time.time()
+        last_particle_time = time.time()
+
+        while step < 50:
             with self.lock:
                 try:
-                    # Check if queue is empty using proper method
-                    if not data_queue.empty():
-                        event_type, message = data_queue.get()
-                        if event_type == "DriveEncoders":
-                            dx, dy = self.extract_movement(event_type, message)
-                            self.pf.move_particles(dx, dy)
+                    current_time = time.time()
+
+                    # Process sensor fusion (encoders + IMU) at high frequency
+                    if current_time - last_fusion_time >= fusion_interval:
+                        if not data_queue.empty():
+                            data= data_queue.get()
                             
-                            # Fetch latest camera image
-                            actual_image = self.fetch_camera_image()
-                            if actual_image is not None:
-                                self.pf.update_weights(actual_image)
-                                self.pf.resample()
-                                estimated_position = self.pf.estimate_position()
-                                self.current_position = np.array(estimated_position)
-                                
-                                # Update plot at intervals
-                                # if step % plot_interval == 0:
-                                #     self.pf.draw_particles(estimated_position)
-                                
-                                step += 1
-                                logging.info(f"Step: {step}, Estimated Position: {estimated_position}")
-                            else:
-                                logging.warning("Actual image is None. Skipping update.")
-                        
-                        elif event_type == "IMU":
-                            logging.debug("Received IMU event. Currently not used.")
-                    
+                            event_type = data.get("event_type")
+                            message = data.get("message")
+
+                            if event_type == "DriveEncoders":
+                                # Update position using encoder data
+                                self.extract_movement(event_type, message)
+
+                            elif event_type == "IMU":
+                                # Update orientation and refine velocities using IMU data
+                                self.extract_movement(event_type,message)
+
+                        last_fusion_time = current_time
+
+                    # Update particle filter at lower frequency
+                    if current_time - last_particle_time >= particle_interval:
+                        # Move particles based on the fused dx, dy
+                        self.pf.move_particles(self.dx, self.dy)
+                        self.dx = 0.0
+                        self.dy = 0.0
+                        # Fetch latest camera image
+                        actual_image = self.fetch_camera_image()
+                        if actual_image is not None:
+                            # Update weights and resample particles
+                            self.pf.update_weights(actual_image)
+                            estimated_position = self.pf.estimate_position()
+                            self.pf.resample()
+                            self.current_position = np.array(estimated_position)
+
+                            # Plot particles at intervals
+                            if step % plot_interval == 0:
+                                self.pf.draw_particles(estimated_position)
+
+                            step += 1
+                            logging.info(f"Step: {step}, Estimated Position: {estimated_position}")
+                        else:
+                            logging.warning("Actual image is None. Skipping update.")
+
+                        last_particle_time = current_time
+
+                    # Brief pause for plotting
+                    plt.pause(0.001)
+
                 except Exception as e:
                     logging.error(f"Error in main loop: {e}")
                     continue
 
-                plt.pause(0.01)
+
+    # def run(self,step=0):
+    #     global data_queue
+    #     """Main loop to process sensor data and update particle filter."""
+    #     plt.figure(figsize=(8, 8))
+    #     plt.ion()  # Interactive mode on
+    #     step = 0
+    #     plot_interval = 5
+
+    #     last_fusion_time = time.time()
+    #     last_particle_time = time.time()
+
+    #     fusion_interval = 0.01
+    #     particle_interval = 0.1
+
+    #     while step < 50:
+    #         with self.lock:
+    #             try:
+    #                 current_time = time.time()
+    #                 # Check if queue is empty using proper method
+    #                 if current_time - last_fusion_time >= fusion_interval:
+    #                     if not data_queue.empty():
+    #                         event_type, message = data_queue.get()
+    #                         if event_type == "DriveEncoders":
+    #                             dx, dy = self.extract_movement(event_type, message)
+    #                             self.pf.move_particles(dx, dy)
+    #                             # Fetch latest camera image
+    #                             actual_image = self.fetch_camera_image()
+    #                             if actual_image is not None:
+    #                                 self.pf.update_weights(actual_image)
+    #                                 self.pf.resample()
+    #                                 estimated_position = self.pf.estimate_position()
+    #                                 self.current_position = np.array(estimated_position)
+                                    
+    #                                 # Update plot at intervals
+    #                                 if step % plot_interval == 0:
+    #                                     self.pf.draw_particles(estimated_position)
+                                    
+    #                                 step += 1
+    #                                 logging.info(f"Step: {step}, Estimated Position: {estimated_position}")
+    #                             else:
+    #                                 logging.warning("Actual image is None. Skipping update.")
+                            
+    #                         elif event_type == "IMU":
+    #                             dx, dy = self.process_imu_data(message, LOOP_INTERVAL)
+    #                             self.pf.move_particles(dx, dy)
+    #                             if current_time - last_particle_time >= particle_interval:
+    #                                 self.pf.resample()
+    #                                 last_particle_time = current_time
+    #                             step += 1
+    #                             logging.info(f"Step: {step}, Estimated Position: {self.current_position}")
+    #             except Exception as e:
+    #                 logging.error(f"Error in main loop: {e}")
+    #                 continue
+
+    #             plt.pause(0.001)
       
 def on_message(ws, message):
     try:
@@ -530,10 +682,10 @@ def on_message(ws, message):
         logging.warning(f"Received non-JSON message: {message}")
         return  # Early exit since message is not in JSON format
 
-    event_name = event_data.get("eventName")
-    if event_name == "IMUEvent":
+    
+    if event_data.get("eventName") == "IMUEvent":
         handle_sensor_data("IMU", event_data)
-    elif event_name == "DriveEncoders":
+    elif event_data.get("eventName")== "EncoderEvent":
         handle_sensor_data("DriveEncoders", event_data)
     else:
         logging.warning(f"Unknown event received: {event_data}")
@@ -547,23 +699,24 @@ def on_close(ws, close_status_code, close_msg):
 def on_open(ws):
     global subscribed  # Use if opting for the global flag approach
     logging.info("WebSocket connection opened")
-    if not subscribed: # Using ws attribute
+    if not subscribed:
         ws.send(json.dumps({
             "Operation": "subscribe",
             "Type": "IMU",
-            "DebounceMs": 200,
+            "DebounceMs": 50,
             "EventName": "IMUEvent"
         }))
         ws.send(json.dumps({
             "Operation": "subscribe",
             "Type": "DriveEncoders",
-            "DebounceMs": 200,
-            "EventName": "DriveEncoders"
+            "DebounceMs": 50,
+            "EventName": "EncoderEvent"
         }))
-        subscribed = True  #
+        subscribed = True
         logging.info("Subscribed to IMUEvent and DriveEncoders")
     else:
         logging.info("Already subscribed to events")
+
 
 def handle_sensor_data(event_type, message):
     """
@@ -573,27 +726,13 @@ def handle_sensor_data(event_type, message):
         logging.warning(f"No 'message' field in event data for event type: {event_type}")
         return
 
-    try:
-        if isinstance(message, str):
-            event_data = json.loads(message)
-        elif isinstance(message, dict):
-            event_data = message
-        else:
-            logging.error(f"Unexpected message type: {type(message)}")
-            return
-    except json.JSONDecodeError as e:
-        logging.error(f"Failed to decode message: {message}, error: {e}")
-        return
-
-    # Ensure 'message' key exists in event_data
-    sensor_message = event_data.get("message")
-    if sensor_message is None:
-        logging.warning(f"No 'message' key found in event_data: {event_data}")
-        return
-
-    logging.debug(f"Handling sensor data: {event_type}, event_data: {event_data}")
-
-    data_queue.put((event_type, sensor_message))
+    else:
+        data_dict = {
+            "event_type": event_type,
+            "message": message
+        }
+        data_queue.put(data_dict)
+        logging.debug(f"Enqueued {event_type} data for processing")
 
 
 
@@ -618,12 +757,13 @@ if __name__ == "__main__":
         localizer = RobotLocalizer(
             map_image_path=MAP_IMAGE_PATH,
             misty_ip=MISTY_IP,
-            num_particles=300
+            num_particles=50
         )
     
-        
-        
         
         localizer.run()
     except Exception as e:
         logging.error(f"Error in main loop: {e}")
+    
+    finally:
+        threading.Theading(target=ws.close).start()
