@@ -111,7 +111,7 @@ def grid_to_ceiling(grid_x, grid_y):
 class ParticleFilter:
     def __init__(self, num_particles, grid_map, origin, resolution, ceiling_grid_size=6):
         self.num_particles = num_particles
-        self.grid_map = grid_map  # Dictionary with ceiling cell as key and image path as value
+        self.grid_map = grid_map  
         self.origin = origin
         self.resolution = resolution
         self.ceiling_grid_size = ceiling_grid_size
@@ -257,51 +257,8 @@ class ParticleFilter:
         logging.info(f"Weight stats - Mean: {np.mean(self.particle_weights):.6f}, "
                     f"Std: {np.std(self.particle_weights):.6f}, "
                     f"Max: {np.max(self.particle_weights):.6f}")
-    # def update_weights(self, actual_image):
-    #     """
-    #     Update particle weights based on image similarity.
-    #     """
-    #     for i, particle in enumerate(self.particles):
-    #         ceiling_key = None
-    #         if not np.isnan(particle[0]) and not np.isnan(particle[1]):  
-    #             grid_x, grid_y = world_to_grid(particle[0], particle[1])
-    #             ceiling_x, ceiling_y = grid_to_ceiling(grid_x, grid_y)
-    #             if ceiling_x is not None and ceiling_y is not None:
-    #                 ceiling_key = (ceiling_y, ceiling_x)
-              
-    #         if ceiling_key is None or ceiling_key not in self.grid_map['ceiling_images']:
-    #             self.particle_weights[i] = 0.0
-    #             continue
-
-
-    #         else:
-    #             similarity = []
-    #             ceiling_images = self.grid_map['ceiling_images'][ceiling_key]   
-    #             plt.show(actual_image)
-    #             for(orientation, coord) in ceiling_images.items():
-    #                 image_path = f'ceiling_images/{ceiling_key[0]}_{ceiling_key[1]}_{orientation}.jpg'
-    #                 expected_image = cv2.imread(image_path)
-
-    #                 if expected_image is None:
-                        
-    #                     plt.imshow(expected_image)
-    #                     plt.show()
-    #                     res = self.image_similarity(expected_image, actual_image)
-    #                     similarity.append(res)
-                    
-    #             self.particle_weights[i] = max(similarity) if similarity else 0.0
-
-                    
-    
-    #     # Normalize weights
-    #     total_weight = np.sum(self.particle_weights)
-    #     if total_weight == 0:
-    #         # Avoid division by zero; assign uniform weights
-    #         self.particle_weights = np.ones(self.num_particles) / self.num_particles
-    #     else:
-    #         # Add a small value to avoid zero weights
-    #         self.particle_weights += 1e-6
-    #         self.particle_weights /= np.sum(self.particle_weights)
+  
+   
 
     def resample(self):
         """
@@ -643,7 +600,7 @@ def handle_sensor_data(event_type, message):
 # Entry Point
 if __name__ == "__main__":
     # Configuration
-    MAP_IMAGE_PATH = "rotated_lab_474.pgm"
+    MAP_IMAGE_PATH = "lab_474_cropped.pgm"
 
     # Test coordinate transformations with error handling
    
