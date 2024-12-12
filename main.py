@@ -3,18 +3,22 @@ import mistyPy
 import requests
 import numpy as np
 import cv2
+import base64
 from mistyPy.Robot import Robot
 import math
 from ultralytics import YOLO
 
 import webcolors
+from gtts import gTTS  # Used for doing text to speech
 import nltk
 from nltk.corpus import words
 nltk.download('words')
 word_list = set(words.words())
 
 
-MISTY_IP = "10.5.11.234"
+MISTY_IP = "10.5.9.252"
+DEBUG_JSON_REQUESTS = False
+misty = Robot(MISTY_IP)
 
 file_path = "images"
 
@@ -161,6 +165,9 @@ def dictionary_based_split(text):
 
 
 def describe_object(x1, x2, y1, y2, frame):
+    """
+    use the confidence score to threshold when the description of the object is provided
+    """
     roi = frame[y1:y2, x1:x2]
     hist = cv2.calcHist([roi], [0, 1, 2], None, [
                         256, 256, 256], [0, 256, 0, 256, 0, 256])
@@ -168,7 +175,58 @@ def describe_object(x1, x2, y1, y2, frame):
     dominant_color = (int(max_bin[0]), int(max_bin[1]), int(max_bin[2]))
     color_name = get_color_name(dominant_color)
 
-    return
+    return color_name
+
+
+def JSON_response_to_dictionary(response):
+    API_Data = response.json()
+    if DEBUG_JSON_REQUESTS:
+        for key in API_Data:
+            {print(key, ":", API_Data[key])}
+    return API_Data
+
+
+def misty_description_demo():
+    """
+    Demo for the ability of our system to have Misty announce
+    descriptions of obstacles surrounding her
+    """
+    # retrieve the camera frame
+    fetch_misty_camera_frame()
+    frame_path = "images/misty_frame.jpg"
+    frame = cv2.imread(frame_path)
+
+    results = model(frame, stream=False)
+    for result in results:
+        boxes = r.boxes
+        for box in boxes:
+            x1, y1, x2, y2 = box.xyxy[0]
+            x1, y1, x2, y2 = int(x1), int(y1), int(
+                x2), int(y2)
+
+            confidence = math.ceil((box.conf[0] * 100)) / 100
+            print("Confidence --->", confidence)
+
+            # Class name
+            cls = int(box.cls[0])
+            print("Class name -->", classNames[cls])
+
+            if confidence > 0.5:
+                color_description = describe_object(x1, x2, y1, y2, frame)
+                text = f"I see a {color_description} {cls} in front of me. Also this is our testing demo. Banana peel"
+                language = "en"
+                speech = gTTS(text=text, lang=language, slow=False)
+                file_name = "audio_demo.mp3"
+                speech.save(file_name)
+                ENCODING = 'utf-8'
+                encode_string = base64.b64encode(open(file_name, "rb").read())
+                base64_string = encode_string.decode(ENCODING)
+
+                save_audio_response = misty.SaveAudio(
+                    file_name, data=base64_string, overwriteExisting=True, immediatelyApply=True)
+                save_audio = JSON_response_to_dictionary(save_audio_response)
+                print("Saving Audio Response: " + str(save_audio))
+                misty.PlayAudio(file_name, volume=100)
 
 
 def main():
