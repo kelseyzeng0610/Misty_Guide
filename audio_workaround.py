@@ -59,7 +59,7 @@ if __name__ == "__main__":
     #misty.PlayAudio("s_Amazement.wav", volume=100) # This works, so it's not a speaker problem!
     #time.sleep(2)
 
-    text = "Hello World, this is my Misty speech workaround! Testing out encoding and decoding data"
+    text = "Hello World, my name is Misty,and this project is developed by Nikki Falicov and Kelsey Zeng, hope you enjoy it!"
     language = 'en'
     speech = gTTS(text=text, lang=language, slow=False)
     file_name = "audio.mp3"
