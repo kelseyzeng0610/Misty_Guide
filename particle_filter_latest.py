@@ -24,7 +24,8 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-MISTY_IP = "10.5.11.234"
+# MISTY_IP = "10.5.11.234"
+MISTY_IP = "10.5.9.252"
 misty = Robot(MISTY_IP)
 # Constants
 subscribed = False
