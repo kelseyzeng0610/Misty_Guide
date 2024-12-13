@@ -1,5 +1,7 @@
 
 import mistyPy
+import os
+import time
 import requests
 import numpy as np
 import cv2
@@ -59,11 +61,14 @@ def fetch_misty_camera_frame():
     headers = {"Accept": "image/jpeg"}
 
     try:
+        misty.EnableCameraService()
         response = requests.get(url, headers=headers, stream=True)
         if response.status_code == 200:
 
             img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
             frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            if not os.path.exists("images"):
+                os.makedirs("images")
             img = cv2.imwrite("images/misty_frame.jpg", frame)
 
             return img
@@ -147,8 +152,9 @@ def closest_color(requested_color):
 
 
 def get_color_name(rgb_tuple):
-    split_result = dictionary_based_split(closest_color(rgb_tuple))
-    return split_result
+    # split_result = dictionary_based_split(closest_color(rgb_tuple))
+    # return split_result
+    return closest_color(rgb_tuple)
 
 
 def dictionary_based_split(text):
@@ -192,13 +198,14 @@ def misty_description_demo():
     descriptions of obstacles surrounding her
     """
     # retrieve the camera frame
-    fetch_misty_camera_frame()
+    image = fetch_misty_camera_frame()
+    breakpoint()
     frame_path = "images/misty_frame.jpg"
     frame = cv2.imread(frame_path)
 
     results = model(frame, stream=False)
     for result in results:
-        boxes = r.boxes
+        boxes = result.boxes
         for box in boxes:
             x1, y1, x2, y2 = box.xyxy[0]
             x1, y1, x2, y2 = int(x1), int(y1), int(
@@ -213,7 +220,8 @@ def misty_description_demo():
 
             if confidence > 0.5:
                 color_description = describe_object(x1, x2, y1, y2, frame)
-                text = f"I see a {color_description} {cls} in front of me. Also this is our testing demo. Banana peel"
+                text = f"I see a {classNames[cls]} in front of me. The most dominant color of the object is {color_description}."
+                breakpoint()
                 language = "en"
                 speech = gTTS(text=text, lang=language, slow=False)
                 file_name = "audio_demo.mp3"
@@ -226,7 +234,8 @@ def misty_description_demo():
                     file_name, data=base64_string, overwriteExisting=True, immediatelyApply=True)
                 save_audio = JSON_response_to_dictionary(save_audio_response)
                 print("Saving Audio Response: " + str(save_audio))
-                misty.PlayAudio(file_name, volume=100)
+                misty.PlayAudio(file_name, volume=10)
+                time.sleep(5)
 
 
 def main():
@@ -249,5 +258,5 @@ def main():
     cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
