@@ -18,6 +18,9 @@ import threading
 import base64
 import asyncio
 import io
+import matplotlib.pyplot as plt
+from matplotlib.animation import FFMpegWriter
+
 
 logging.basicConfig(
     # Set to INFO to reduce verbosity. Change to DEBUG if detailed logs are needed.
@@ -25,9 +28,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-
-# MISTY_IP = "10.5.11.234"
-MISTY_IP = "10.5.9.252"
+wheel_base = 0.11  # Wheel base (track width) in meters
+MISTY_IP = "10.5.11.234"
+# MISTY_IP = "10.5.9.252"
 misty = Robot(MISTY_IP)
 # Constants
 
@@ -141,25 +144,27 @@ class ParticleFilter:
         """
         Initialize particles randomly in free cells.
         """
+        # particles = []
+        # for _ in range(self.num_particles):
+        #     px, py = self.grid_map['random_free_cell']()
+        #     particles.append([px, py])
+        # return np.array(particles, dtype=float)
+
         particles = []
-        for _ in range(self.num_particles):
-            px, py = self.grid_map['random_free_cell']()
-            particles.append([px, py])
-        return np.array(particles, dtype=float)
+        particles = np.random.uniform(
+            low=[-15.4, -12.2], high=[0, 0], size=(self.num_particles, 2)
+        )
+        self.particles = particles
+        return particles
 
-    def move_particles(self, dx, dy, sigma=0.1):
-        """
-        Move particles based on control input with added Gaussian noise.
-        """
+    def move_particles(self, dx, dy, yaw, sigma=0.1):
+        for i, particle in enumerate(self.particles):
+            noise = np.random.normal(0, sigma, size=2)
+            particle[0] += (dx * np.cos(yaw) - dy * np.sin(yaw)) + noise[0]
+            particle[1] += (dx * np.sin(yaw) + dy * np.cos(yaw)) + noise[1]
+            particle[0] = np.clip(particle[0], WIDTH_MIN, WIDTH_MAX)
+            particle[1] = np.clip(particle[1], HEIGHT_MIN, HEIGHT_MAX)
 
-        for particle in self.particles:
-            noise = np.array([np.random.normal(0, sigma), np.random.normal(0, sigma)])
-            movement = np.array([dx, dy])
-            attempt = movement + noise + particle
-            if attempt is None and attempt[0] <= WIDTH_MAX and attempt[1] <= HEIGHT_MAX and attempt[0] >= WIDTH_MIN and attempt[1] >= HEIGHT_MIN:
-                particle = attempt
-            else:
-                particle = particle
 
 
     def image_similarity(self, expected_image, actual):
@@ -206,14 +211,14 @@ class ParticleFilter:
                     continue
 
                 grid_x, grid_y = world_to_grid(particle[0], particle[1])
-                print("grid:",grid_x,grid_y)
+                
                 if grid_x is None or grid_y is None:
                     logging.debug(f"Invalid grid coordinates for particle {i}")
                     self.particle_weights[i] = 0.0
                     continue
                
                 ceiling_x, ceiling_y = grid_to_ceiling(grid_x, grid_y)
-                print("ceiling",ceiling_x,ceiling_y)
+            
                 if ceiling_x is None or ceiling_y is None:
                     logging.debug(
                         f"Invalid ceiling coordinates for particle {i}")
@@ -284,48 +289,7 @@ class ParticleFilter:
         logging.info(f"Weight stats - Mean: {np.mean(self.particle_weights):.6f}, "
                      f"Std: {np.std(self.particle_weights):.6f}, "
                      f"Max: {np.max(self.particle_weights):.6f}")
-    # def update_weights(self, actual_image):
-    #     """
-    #     Update particle weights based on image similarity.
-    #     """
-    #     for i, particle in enumerate(self.particles):
-    #         ceiling_key = None
-    #         if not np.isnan(particle[0]) and not np.isnan(particle[1]):
-    #             grid_x, grid_y = world_to_grid(particle[0], particle[1])
-    #             ceiling_x, ceiling_y = grid_to_ceiling(grid_x, grid_y)
-    #             if ceiling_x is not None and ceiling_y is not None:
-    #                 ceiling_key = (ceiling_y, ceiling_x)
-
-    #         if ceiling_key is None or ceiling_key not in self.grid_map['ceiling_images']:
-    #             self.particle_weights[i] = 0.0
-    #             continue
-
-    #         else:
-    #             similarity = []
-    #             ceiling_images = self.grid_map['ceiling_images'][ceiling_key]
-    #             plt.show(actual_image)
-    #             for(orientation, coord) in ceiling_images.items():
-    #                 image_path = f'ceiling_images/{ceiling_key[0]}_{ceiling_key[1]}_{orientation}.jpg'
-    #                 expected_image = cv2.imread(image_path)
-
-    #                 if expected_image is None:
-
-    #                     plt.imshow(expected_image)
-    #                     plt.show()
-    #                     res = self.image_similarity(expected_image, actual_image)
-    #                     similarity.append(res)
-
-    #             self.particle_weights[i] = max(similarity) if similarity else 0.0
-
-    #     # Normalize weights
-    #     total_weight = np.sum(self.particle_weights)
-    #     if total_weight == 0:
-    #         # Avoid division by zero; assign uniform weights
-    #         self.particle_weights = np.ones(self.num_particles) / self.num_particles
-    #     else:
-    #         # Add a small value to avoid zero weights
-    #         self.particle_weights += 1e-6
-    #         self.particle_weights /= np.sum(self.particle_weights)
+  
 
     def resample(self):
         """
@@ -343,51 +307,71 @@ class ParticleFilter:
         """
         Estimate the robot's position as the weighted average of particle positions.
         """
-        # self.particle_weights += 1e-6  # Add a small value to avoid zero weights
-        # index = np.argmax(self.particle_weights)
-        # print(self.particles[index])
-        # world_x, world_y = world_to_grid(self.particles[index][0],self.particles[index][1])
-        # print(grid_to_ceiling(world_x,world_y))
-        # breakpoint()
+       
         x_estimate = np.average(self.particles[:, 0], weights=self.particle_weights)
         y_estimate = np.average(self.particles[:, 1], weights=self.particle_weights)
         return x_estimate, y_estimate
 
     def draw_particles(self, estimated_position=None):
         """
-        Visualize particles and estimated position.
+        Visualize particles and estimated position, aligning with the map's orientation and real-world coordinates.
         """
-        plt.clf()
+        # Load map image
+        map_img = plt.imread('lab_474_rotated_cropped.pgm')
+
+        plt.clf()  # Clear the figure
+
+        # Display the map with the real-world bounds
+        plt.imshow(map_img, cmap='gray', origin='lower', extent=[0, -15.4, 0, -12.2])
+
+        # Debug: Check particle values
+        print("Particles (original):", self.particles)
+        print("Estimated Position (original):", estimated_position)
+
+        # Transform particle coordinates to the map's real-world bounds
+        flipped_x = self.particles[:, 0]  # Particle X-coordinates
+        flipped_y = self.particles[:, 1]  # Particle Y-coordinates
+
         # Plot particles
         plt.scatter(
-            self.particles[:, 0],
-            self.particles[:, 1],
+            flipped_x,
+            flipped_y,
             s=10,
             c=self.particle_weights,
             cmap='viridis',
             alpha=0.5,
             label='Particles'
         )
+
         # Plot estimated position
         if estimated_position is not None:
+            flipped_estimated_x = estimated_position[0]
+            flipped_estimated_y = estimated_position[1]
             plt.scatter(
-                estimated_position[0],
-                estimated_position[1],
+                flipped_estimated_x,
+                flipped_estimated_y,
                 c='blue',
                 marker='+',
                 s=100,
                 label='Estimated Position'
             )
+
+        # Set axis limits to match the real-world bounds
+        plt.xlim(0, -15.4)
+        plt.ylim(0, -12.2)
+
+        # Add labels, title, and grid
         plt.legend()
-        plt.xlabel("World X (meters)")
-        plt.ylabel("World Y (meters)")
+        plt.xlabel("World Y (meters) -")
+        plt.ylabel("World X (meters) - ")
         plt.title("Particle Filter Localization")
         plt.grid(True)
-        plt.show()
-        plt.savefig("testing_testing_testing.png")
-        # we want the scatterplot to be overlaid on top of the map
-        # origin of image is top left, origin of the room is bottom right
+
+        # Draw and save the visualization
+        plt.draw()
         plt.pause(0.01)
+        plt.savefig("testing_testing_testing.png")
+
 
 
 def load_grid_map(pgm_path):
@@ -460,7 +444,7 @@ def load_grid_map(pgm_path):
             y = random.randint(0, height - 1)
             pixel_value = grid_map["map_array"][y, x]
 
-            if pixel_value <= THRESHOLD and (x // 7 not in blocked_columns):
+            if pixel_value.all() <= THRESHOLD and (x // 7 not in blocked_columns):
                 world_x, world_y = grid_to_world(x, y)
                 return world_x, world_y
 
@@ -487,9 +471,18 @@ class RobotLocalizer:
         self.lock = threading.Lock()
         self.dx = 0.0
         self.dy = 0.0
-        self.vx = 0.0
-        self.vy = 0.0
-        self.yaw = 0.0
+        self.previous_imu_yaw = None  # Previous IMU yaw in radians
+        self.previous_left_distance = None  # Previous left encoder distance in meters
+        self.previous_right_distance = None  # Previous right encoder distance in meters
+        self.delta_theta_encoders = 0.0  # Change in orientation from encoders
+        self.delta_d = 0.0 
+        self.yaw = 0.0  # Current orientation in radians
+        self.vx = 0.0  # Linear velocity in m/s
+        self.vy = 0.0  # Linear velocity in m/s
+        self.omega = 0.0  # Angular velocity in rad/s
+        
+
+
 
     def __del__(self):
         """Cleanup when object is deleted"""
@@ -530,85 +523,32 @@ class RobotLocalizer:
             print(f"Request Exception while fetching image: {e}")
         return None
 
-    # def process_imu_data(self, imu_data, loop_interval):
-    #     """
-    #     Process IMU data to update orientation and position deltas.
-    #     """
-    #     yaw = math.radians(imu_data.get("yaw", 0.0))  # Convert to radians
-    #     yaw_velocity = math.radians(imu_data.get("yawVelocity", 0.0))  # radians/s
-    #     pitch = math.radians(imu_data.get("pitch", 0.0))
-    #     roll = math.radians(imu_data.get("roll", 0.0))
-    #     x_acc = imu_data.get("xAcceleration", 0.0)  # m/s^2
-    #     y_acc = imu_data.get("yAcceleration", 0.0)  # m/s^2
-    #     z_acc = imu_data.get("zAcceleration", 0.0) - 9.8  # Net z acceleration
+   
+    import math
+    def extract_movement(self, event_name, data):
+        """
+        Fuse encoder and IMU data to calculate deltas (dx, dy) and yaw.
+        """
+        wheel_base = 0.11  # Track width
+        interval = 0.1     # Time step
 
-    #     # Update yaw (absolute orientation)
-    #     self.yaw = yaw
+        if event_name == "DriveEncoders":
+            left_dist = data.get("leftDistance", 0.0) / 1000.0
+            right_dist = data.get("rightDistance", 0.0) / 1000.0
+            self.vx = (left_dist + right_dist) / 2.0
+            self.omega = (right_dist - left_dist) / wheel_base
 
-    #     # Adjust acceleration for tilt
-    #     x_acc_adjusted = x_acc * math.cos(pitch)
-    #     y_acc_adjusted = y_acc * math.cos(roll)
+        elif event_name == "IMU":
+            yaw_velocity = math.radians(data.get("yawVelocity", 0.0))
+            self.yaw += yaw_velocity * interval
+            self.vx += data.get("xAcceleration", 0.0) * interval
 
-    #     # Update velocities using acceleration
-    #     self.vx += x_acc_adjusted * loop_interval
-    #     self.vy += y_acc_adjusted * loop_interval
-
-    #     # Calculate position deltas
-    #     dx = self.vx * math.cos(self.yaw) * LOOP_INTERVAL
-    #     dy = self.vy * math.sin(self.yaw) * LOOP_INTERVAL
-
-    #     self.dx += dx
-    #     self.dy += dy
-
-    #     return self.dx, self.dy
-
-
+        dx = self.vx * math.cos(self.yaw) * interval
+        dy = self.vx * math.sin(self.yaw) * interval
+        return dx, dy
+   
+   
   
-    def extract_movement(self, eventName, data):
-        """
-        Fuse encoder and IMU data to calculate movement deltas (dx, dy).
-        """
-        wheel_base = 0.11  # Distance between wheels in meters
-        LOOP_INTERVAL = 0.1  # Time interval in seconds
-
-        if eventName == "DriveEncoders":
-            left_velocity_mm_s = data.get("leftVelocity", 0.0)
-            right_velocity_mm_s = data.get("rightVelocity", 0.0)
-            left_v = left_velocity_mm_s / 1000.0  # Convert mm/s to m/s
-            left_v = left_velocity_mm_s / 1000.0  # Convert mm/s to m/s
-            right_v = right_velocity_mm_s / 1000.0  # Convert mm/s to m/s
-
-            # Calculate linear and angular velocity from encoders
-            self.vx = (left_v + right_v) / 2.0
-            self.omega = (right_v - left_v) / wheel_base
-
-
-        elif eventName == "IMU":
-            yaw = math.radians(data.get("yaw", 0.0))  # Convert yaw to radians
-            yaw_velocity = math.radians(data.get("yawVelocity", 0.0))  # Radians/s
-            x_acc = data.get("xAcceleration", 0.0)  # m/s^2
-            y_acc = data.get("yAcceleration", 0.0)  # m/s^2
-
-            # Update yaw using a complementary filter
-            alpha = 0.9  # Filter parameter (adjust based on testing)
-            self.yaw = alpha * (self.yaw + yaw_velocity * LOOP_INTERVAL) + (1 - alpha) * yaw
-
-            # Refine linear velocity using IMU acceleration
-            self.vx += x_acc * LOOP_INTERVAL  # Incorporate acceleration
-
-        # Use fused linear velocity (v) and yaw for position updates
-        dx = self.vx * math.cos(self.yaw) * LOOP_INTERVAL
-        dy = self.vy * math.sin(self.yaw) * LOOP_INTERVAL
-
-        
-        self.dx += dx
-        self.dy += dy
-
-        return dx,dy
-
-
-
-    #
     def run(self, step=0):
         global data_queue
         """Main loop to process sensor data and update particle filter."""
@@ -618,7 +558,7 @@ class RobotLocalizer:
         # Step counters and intervals
         fusion_interval = 0.01  # 10 ms (100 Hz)
         particle_interval = 0.1  # 100 ms (10 Hz)
-        plot_interval = 5  # Plot every 5 particle filter steps
+        plot_interval = 2  # Plot every 5 particle filter steps
 
         last_fusion_time = time.time()
         last_particle_time = time.time()
@@ -638,7 +578,7 @@ class RobotLocalizer:
 
                             if event_type == "DriveEncoders":
                                 # Update position using encoder data
-                                self.extract_movement(event_type, message)
+                                 self.extract_movement(event_type, message)
 
                             elif event_type == "IMU":
                                 # Update orientation and refine velocities using IMU data
@@ -649,7 +589,7 @@ class RobotLocalizer:
                     # Update particle filter at lower frequency
                     if current_time - last_particle_time >= particle_interval:
                         # Move particles based on the fused dx, dy
-                        self.pf.move_particles(self.dx, self.dy)
+                        self.pf.move_particles(self.dx, self.dy,self.yaw)
                         self.dx = 0.0
                         self.dy = 0.0
                         # Fetch latest camera image
@@ -680,61 +620,7 @@ class RobotLocalizer:
                     continue
 
 
-    # def run(self,step=0):
-    #     global data_queue
-    #     """Main loop to process sensor data and update particle filter."""
-    #     plt.figure(figsize=(8, 8))
-    #     plt.ion()  # Interactive mode on
-    #     step = 0
-    #     plot_interval = 5
-
-    #     last_fusion_time = time.time()
-    #     last_particle_time = time.time()
-
-    #     fusion_interval = 0.01
-    #     particle_interval = 0.1
-
-    #     while step < 50:
-    #         with self.lock:
-    #             try:
-    #                 current_time = time.time()
-    #                 # Check if queue is empty using proper method
-    #                 if current_time - last_fusion_time >= fusion_interval:
-    #                     if not data_queue.empty():
-    #                         event_type, message = data_queue.get()
-    #                         if event_type == "DriveEncoders":
-    #                             dx, dy = self.extract_movement(event_type, message)
-    #                             self.pf.move_particles(dx, dy)
-    #                             # Fetch latest camera image
-    #                             actual_image = self.fetch_camera_image()
-    #                             if actual_image is not None:
-    #                                 self.pf.update_weights(actual_image)
-    #                                 self.pf.resample()
-    #                                 estimated_position = self.pf.estimate_position()
-    #                                 self.current_position = np.array(estimated_position)
-                                    
-    #                                 # Update plot at intervals
-    #                                 if step % plot_interval == 0:
-    #                                     self.pf.draw_particles(estimated_position)
-                                    
-    #                                 step += 1
-    #                                 logging.info(f"Step: {step}, Estimated Position: {estimated_position}")
-    #                             else:
-    #                                 logging.warning("Actual image is None. Skipping update.")
-                            
-    #                         elif event_type == "IMU":
-    #                             dx, dy = self.process_imu_data(message, LOOP_INTERVAL)
-    #                             self.pf.move_particles(dx, dy)
-    #                             if current_time - last_particle_time >= particle_interval:
-    #                                 self.pf.resample()
-    #                                 last_particle_time = current_time
-    #                             step += 1
-    #                             logging.info(f"Step: {step}, Estimated Position: {self.current_position}")
-    #             except Exception as e:
-    #                 logging.error(f"Error in main loop: {e}")
-    #                 continue
-
-    #             plt.pause(0.001)
+    
       
 def on_message(ws, message):
     try:
@@ -806,7 +692,7 @@ def handle_sensor_data(event_type, message):
 # Entry Point
 def main():
     # Configuration
-    MAP_IMAGE_PATH = "lab_474_cropped.pgm"
+    MAP_IMAGE_PATH = "lab_474_rotated_cropped.pgm"
 
     # Test coordinate transformations with error handling
 
@@ -831,4 +717,6 @@ def main():
         logging.error(f"Error in main loop: {e}")
     
     finally:
-        threading.Theading(target=ws.close).start()
+         ws.close()
+
+main()
