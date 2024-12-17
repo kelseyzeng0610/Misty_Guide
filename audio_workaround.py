@@ -72,4 +72,4 @@ if __name__ == "__main__":
     save_audio_response = misty.SaveAudio(file_name, data=base64_string, overwriteExisting=True, immediatelyApply=True)
     save_audio = JSON_response_to_dictionary(save_audio_response)
     print("Saving Audio Response: " + str(save_audio))
-    #misty.PlayAudio(file_name, volume=100)
+    misty.PlayAudio(file_name, volume=100)
