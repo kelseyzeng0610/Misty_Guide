@@ -17,8 +17,24 @@ misty = Robot(MISTY_IP)
 
 # Load YOLO model
 model = YOLO("yolo_weights/yolo11n.pt")  
-classNames = ["person", "bicycle", "car", "motorbike", "aeroplane", "bus", "train", "truck",
-              "boat", "bench", "bird", "cat", "dog", "horse", "sheep", "cow", "elephant"]
+
+
+classNames = ["person", "bicycle", "car", "motorbike", "aeroplane", "bus",
+              "train", "truck", "boat", "traffic light", "fire hydrant",
+              "stop sign", "parking meter", "bench", "bird", "cat", "dog",
+              "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe",
+              "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+              "skis", "snowboard", "sports ball", "kite", "baseball bat",
+              "baseball glove", "skateboard", "surfboard", "tennis racket",
+              "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl",
+              "banana", "apple", "sandwich", "orange", "broccoli", "carrot",
+              "hot dog", "pizza", "donut", "cake", "chair", "sofa",
+              "pottedplant", "bed", "diningtable", "toilet", "tvmonitor",
+              "laptop", "mouse", "remote", "keyboard", "cell phone",
+              "microwave", "oven", "toaster", "sink", "refrigerator", "book",
+              "clock", "vase", "scissors", "teddy bear", "hair drier",
+              "toothbrush"
+              ]
 
 # Global Flags
 stop_requested = False
@@ -86,54 +102,7 @@ def run_yolo_and_announce(frame):
     return detected
 
 
-def on_message(ws, message):
-    """Handle incoming messages from Misty's WebSocket."""
-    global obstacle_detected
-    if stop_requested or obstacle_detected:
-        return
 
-    try:
-        # Parse message
-        data = json.loads(message) if isinstance(message, str) else message
-        tof_message = data.get("message", {})
-        sensor_position = tof_message.get("sensorPosition", "")
-        distance = tof_message.get("distanceInMeters", None)
-
-        if sensor_position == "Center" and distance is not None:
-            print(f"Distance in meters (Center): {distance}")
-            if distance < 0.4:  # Obstacle detected
-                print("Obstacle detected! Stopping.")
-                obstacle_detected = True
-                misty.Stop()
-                time.sleep(1)
-
-                # Announce before avoidance
-                announce("Obstacle detected. Analyzing the situation.")
-
-                # Run YOLO detection
-                frame = fetch_misty_camera_frame()
-                if frame is not None:
-                    print("Processing YOLO for detected obstacle...")
-                    run_yolo_and_announce(frame)
-
-                # Avoidance maneuver
-                announce("Avoiding the obstacle now.")
-                print("Avoiding obstacle...")
-                misty.DriveTime(0, 50, 2000)  # Turn right
-                time.sleep(2.5)
-                misty.DriveTime(20, 0, 2000)  # Move forward
-                time.sleep(2.5)
-                misty.DriveTime(0, -50, 2000)  # Turn left
-                time.sleep(2.5)
-
-                print("Resuming forward motion.")
-                announce("Obstacle cleared. Resuming movement.")
-                obstacle_detected = False  # Reset flag
-
-    except json.JSONDecodeError:
-        print("Invalid JSON received:", message)
-    except Exception as e:
-        print("Error processing WebSocket message:", e)
 
 
 def on_error(ws, error):
@@ -168,18 +137,85 @@ def start_websocket():
     ws.run_forever()
 
 
+
+def smooth_stop():
+    """Gradually slow down the robot."""
+    for speed in range(10, 0, -5):  # Decrease speed in steps
+        misty.Drive(speed, 0)
+        time.sleep(0.2)
+    misty.Stop()
+    print("Robot smoothly stopped.")
+
+
+def on_message(ws, message):
+    """Handle incoming messages from Misty's WebSocket."""
+    global obstacle_detected
+    if stop_requested or obstacle_detected:
+        return
+
+    try:
+        # Parse message
+        data = json.loads(message) if isinstance(message, str) else message
+        tof_message = data.get("message", {})
+        sensor_position = tof_message.get("sensorPosition", "")
+        distance = tof_message.get("distanceInMeters", None)
+
+        if sensor_position == "Center" and distance is not None:
+            print(f"Distance in meters (Center): {distance}")
+            
+            if 0.4 < distance < 0.6:  # Slow down if an obstacle is near
+                print("Slowing down due to nearby obstacle.")
+                misty.Drive(10, 0)  # Reduce speed
+            
+            elif distance <= 0.4:  # Stop if very close
+                print("Obstacle detected! Preparing to stop.")
+                obstacle_detected = True
+                smooth_stop()
+
+                # Announce before processing
+                announce("Obstacle detected. Analyzing the situation.")
+
+                # Run YOLO detection
+                frame = fetch_misty_camera_frame()
+                if frame is not None:
+                    print("Processing YOLO for detected obstacle...")
+                    run_yolo_and_announce(frame)
+
+                # Avoidance maneuver
+                announce("Avoiding the obstacle now.")
+                print("Avoiding obstacle...")
+                misty.DriveTime(0, 230, 3000)  # Turn right
+                time.sleep(2.5)
+                misty.DriveTime(20, 0, 1000)  # Move forward
+                time.sleep(3)
+                misty.DriveTime(0, -250, 3000)  # Turn left
+                time.sleep(2.5)
+
+                print("Resuming forward motion.")
+                announce("Obstacle cleared. Resuming movement.")
+                obstacle_detected = False  # Reset flag
+
+
+
+                print("Debouncing...")
+                # prevent immediate trigger
+                time.sleep(2) 
+
+    except json.JSONDecodeError:
+        print("Invalid JSON received:", message)
+    except Exception as e:
+        print("Error processing WebSocket message:", e)
+
+
 def keep_moving_forward():
     """Continuously move forward unless interrupted."""
     while not stop_requested:
         if not obstacle_detected:
-            misty.DriveTime(20, 0, 4000)
-            for _ in range(40):  # Check every 0.1s for 4s
-                if stop_requested or obstacle_detected:
-                    break
-                time.sleep(0.3)
+            misty.Drive(20, 0)  # Move at full speed
+            time.sleep(0.1)  # Shorter sleep for better control
         else:
-            time.sleep(0.3)  # Allow obstacle handling
-    misty.Stop()
+            time.sleep(0.1)  # Allow obstacle handling
+    smooth_stop()
     print("Robot stopped by user.")
 
 
@@ -197,3 +233,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
