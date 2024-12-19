@@ -23,14 +23,14 @@ from matplotlib.animation import FFMpegWriter
 
 
 logging.basicConfig(
-    # Set to INFO to reduce verbosity. Change to DEBUG if detailed logs are needed.
+
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 wheel_base = 0.11  # Wheel base (track width) in meters
-MISTY_IP = "10.5.11.234"
-# MISTY_IP = "10.5.9.252"
+
+MISTY_IP = "10.5.9.252"
 misty = Robot(MISTY_IP)
 # Constants
 
@@ -333,28 +333,28 @@ class ParticleFilter:
         flipped_y = self.particles[:, 1]  # Particle Y-coordinates
 
         # Plot particles
-        plt.scatter(
-            flipped_x,
-            flipped_y,
-            s=10,
-            c=self.particle_weights,
-            cmap='viridis',
-            alpha=0.5,
-            label='Particles'
-        )
+        # plt.scatter(
+        #     flipped_x,
+        #     flipped_y,
+        #     s=10,
+        #     c=self.particle_weights,
+        #     cmap='viridis',
+        #     alpha=0.5,
+        #     label='Particles'
+        # )
 
-        # Plot estimated position
-        if estimated_position is not None:
-            flipped_estimated_x = estimated_position[0]
-            flipped_estimated_y = estimated_position[1]
-            plt.scatter(
-                flipped_estimated_x,
-                flipped_estimated_y,
-                c='blue',
-                marker='+',
-                s=100,
-                label='Estimated Position'
-            )
+        # # Plot estimated position
+        # if estimated_position is not None:
+        #     flipped_estimated_x = estimated_position[0]
+        #     flipped_estimated_y = estimated_position[1]
+        #     plt.scatter(
+        #         flipped_estimated_x,
+        #         flipped_estimated_y,
+        #         c='blue',
+        #         marker='+',
+        #         s=100,
+        #         label='Estimated Position'
+        #     )
 
         # Set axis limits to match the real-world bounds
         plt.xlim(0, -15.4)
@@ -362,8 +362,8 @@ class ParticleFilter:
 
         # Add labels, title, and grid
         plt.legend()
-        plt.xlabel("World Y (meters) -")
-        plt.ylabel("World X (meters) - ")
+        plt.xlabel("World X (meters) -")
+        plt.ylabel("World Y (meters) - ")
         plt.title("Particle Filter Localization")
         plt.grid(True)
 
@@ -510,9 +510,9 @@ class RobotLocalizer:
                     bytearray(response.content), dtype=np.uint8)
                 frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 if frame is not None:
-                    # Resize the image if necessary
+             
                     frame = cv2.resize(frame, (720, 1080)) 
-                     # (width, height)
+                   
                     return frame
                 else:
                     print("Error: Failed to decode the image. Frame is None.")
@@ -553,12 +553,12 @@ class RobotLocalizer:
         global data_queue
         """Main loop to process sensor data and update particle filter."""
         plt.figure(figsize=(8, 8))
-        plt.ion()  # Interactive mode on
+        plt.ion()  
         
         # Step counters and intervals
-        fusion_interval = 0.01  # 10 ms (100 Hz)
-        particle_interval = 0.1  # 100 ms (10 Hz)
-        plot_interval = 2  # Plot every 5 particle filter steps
+        fusion_interval = 0.01  # 10 ms 
+        particle_interval = 0.1  # 100 ms 
+        plot_interval = 2  # Plot every 2 particle filter steps
 
         last_fusion_time = time.time()
         last_particle_time = time.time()
@@ -568,7 +568,7 @@ class RobotLocalizer:
                 try:
                     current_time = time.time()
 
-                    # Process sensor fusion (encoders + IMU) at high frequency
+                    # Update particle filter at higher frequency
                     if current_time - last_fusion_time >= fusion_interval:
                         if not data_queue.empty():
                             data= data_queue.get()
@@ -588,7 +588,7 @@ class RobotLocalizer:
 
                     # Update particle filter at lower frequency
                     if current_time - last_particle_time >= particle_interval:
-                        # Move particles based on the fused dx, dy
+                
                         self.pf.move_particles(self.dx, self.dy,self.yaw)
                         self.dx = 0.0
                         self.dy = 0.0
@@ -601,7 +601,7 @@ class RobotLocalizer:
                             self.pf.resample()
                             self.current_position = np.array(estimated_position)
 
-                            # Plot particles at intervals
+                            
                             if step % plot_interval == 0:
                                 self.pf.draw_particles(estimated_position)
 
@@ -612,7 +612,7 @@ class RobotLocalizer:
 
                         last_particle_time = current_time
 
-                    # Brief pause for plotting
+                 
                     plt.pause(0.001)
 
                 except Exception as e:
@@ -627,7 +627,7 @@ def on_message(ws, message):
         event_data = json.loads(message)
     except json.JSONDecodeError:
         logging.warning(f"Received non-JSON message: {message}")
-        return  # Early exit since message is not in JSON format
+        return  
 
     
     if event_data.get("eventName") == "IMUEvent":
@@ -647,7 +647,7 @@ def on_close(ws, close_status_code, close_msg):
 
 
 def on_open(ws):
-    global subscribed  # Use if opting for the global flag approach
+    global subscribed  #global flag to check if already subscribed
     logging.info("WebSocket connection opened")
     if not subscribed:
         ws.send(json.dumps({
@@ -694,7 +694,7 @@ def main():
     # Configuration
     MAP_IMAGE_PATH = "lab_474_rotated_cropped.pgm"
 
-    # Test coordinate transformations with error handling
+    
 
     WS_URL = f"ws://{MISTY_IP}/pubsub"
 
