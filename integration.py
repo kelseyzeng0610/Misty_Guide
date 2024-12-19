@@ -137,8 +137,8 @@ class ParticleFilter:
     def move_particles(self, dx, dy, yaw, sigma=0.1):
         for i, particle in enumerate(self.particles):
             noise = np.random.normal(0, sigma, size=2)
-            particle[0] += (dx * np.cos(yaw) - dy * np.sin(yaw)) + noise[0]
-            particle[1] += (dx * np.sin(yaw) + dy * np.cos(yaw)) + noise[1]
+            particle[0] += dx + noise[0]
+            particle[1] += dy + noise[1]
             particle[0] = np.clip(particle[0], WIDTH_MIN, WIDTH_MAX)
             particle[1] = np.clip(particle[1], HEIGHT_MIN, HEIGHT_MAX)
 
