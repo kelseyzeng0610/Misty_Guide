@@ -309,7 +309,6 @@ class RobotLocalizer:
             left_dist = data.get("message", {}).get("leftDistance", 0.0) / 1000.0
             right_dist = data.get("message", {}).get("rightDistance", 0.0) / 1000.0
             self.vx = (left_dist + right_dist) / 2.0
-            self.omega = (right_dist - left_dist) / wheel_base
         elif event_type == "IMU":
             yaw_velocity_deg = data.get("message", {}).get("yawVelocity", 0.0)
             yaw_velocity = math.radians(yaw_velocity_deg)
