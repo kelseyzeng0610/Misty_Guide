@@ -7,11 +7,13 @@ Welcome to the **Misty_Guide** repository! This project presents a Python-based 
 
 ## Project Structure(core files)
 
-. ├── integration.py # Main integration of all components (Particle Filter and Obstacle Avoidance) ├── oa_and_announce.py # Obstacle avoidance and announcements ├── particle_filter.py # Localization implementation ├── requirements.txt # Project dependencies ├── README.md # Project documentation └── yolo_weights/ └── yolo11n.pt # YOLO model weights
-
-
-
-
+    integration.py        # Main integration of all components (Particle Filter and Obstacle Avoidance)
+    oa_and_announce.py    # Obstacle avoidance and announcements 
+    particle_filter.py    # Localization implementation 
+    requirements.txt      # Project dependencies 
+    README.md             # Project documentation 
+    yolo_weights/
+         └── yolo11n.pt        # YOLO model weights
 ## Core Features
 
 - **Localization**: Uses particle filter-based localization
